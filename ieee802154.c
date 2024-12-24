@@ -1,83 +1,107 @@
-#include <stdio.h>
-#include <string.h>
+#include	<stdio.h>
+#include	<string.h>
+#include	<endian.h>
 
-#include "common.h"
-#include "ieee802154.h"
+#include	"ieee802154.h"
 
-static const char * const _frame_types[] = {"Beacon", "Data", "Ack"};
-static const char * _unknown = "";
-static const char * const _cmd_types[] = {"", "Association Request", "Association Response", 
-					  "Disassociation Notification", "Data Request",
-					  "PAN ID Conflict", "Orphan Notification", "Beacon Request", "Coordinator Realignment",
-					  "GTS Request"};
-static const char * _broadcast = "Broadcast";
+static const char * const s_frame_types[] = {
+	"Beacon",
+	"Data",
+	"Ack"
+};
+
+
+static const char * const s_cmd_types[] = {"",
+	"Association Request",
+	"Association Response",
+	"Disassociation Notification",
+	"Data Request",
+	"PAN ID Conflict",
+	"Orphan Notification",
+	"Beacon Request",
+	"Coordinator Realignment",
+	"GTS Request"
+};
+
+
+static const char * s_broadcast = "Broadcast";
+static const char * s_unknown = "Unknown";
 
 #define ADDR_MODE_NONE 0
 #define ADDR_MODE_SHORT 2
 #define ADDR_MODE_EXT 3
 
 
-uint8_t
-ieee802154_fmt_address(char *buf, uint8_t addr_mode, uint8_t *data) {
-  uint16_t addr;
-  if (addr_mode == ADDR_MODE_SHORT) {
-    addr = *((uint16_t *) &data[0]);
-    if (addr == 0xffff) {
-      strcpy(buf, _broadcast);
-    } else {
-      snprintf(buf, 16, "0x%04X", le16toh(addr));
-    }
-    return 2;
-  } else {
-    strncpy(buf, _unknown, 24);
-    return 0;
-  }
+static inline int ieee802154_fmt_address (
+		char	*a_buf,
+		uint8_t	a_addr_mode,
+		uint8_t	*a_data
+		)
+{
+uint16_t l_addr;
+
+	if  ( a_addr_mode == ADDR_MODE_SHORT)
+		{
+		l_addr = *((uint16_t *) a_data);
+		l_addr = le16toh(l_addr);
+
+		if  (l_addr == 0xffff)
+			strncpy(a_buf, s_broadcast, 24);
+		else	snprintf(a_buf, 16, "0x%04X", l_addr);
+
+		return 2;
+		}
+
+
+	strncpy(a_buf, s_unknown, 24);
+	return 0;
+
 }
 
-void
-ieee802154_decode(uint8_t channel, uint8_t length, 
-		       uint8_t *data, int8_t rssi, uint8_t device_id, 
-		       struct ieee802154_packet *packet) {
-  uint8_t frame_type;
-  uint8_t src_addr_mode;
-  uint8_t dst_addr_mode;
+void ieee802154_decode (
+		uint8_t	a_channel,
+		uint8_t	a_length,
+		uint8_t *a_data,
+		int8_t	a_rssi,
+		uint8_t a_device_id,
+	struct ieee802154_packet_t *a_packet
+		)
+{
+uint8_t l_frame_type, l_src_addr_mode, l_dst_addr_mode;
 
-  packet->channel = channel;
-  packet->device = device_id;
-  packet->length = length;
-  packet->lqi = rssi;
-  packet->data = data;
+	a_packet->channel = a_channel;
+	a_packet->device = a_device_id;
+	a_packet->length = a_length;
+	a_packet->lqi = a_rssi;
+	a_packet->data = a_data;
 
-  /* Get the frame description */
-  frame_type = data[0] & 7;
-  if (frame_type <= 2) {
-    strncpy(packet->desc, _frame_types[frame_type], 256);
-  } else {
-    strncpy(packet->desc, _unknown, 256);
-  }
+	/* Get the frame description */
+	l_frame_type = a_data[0] & 7;
 
-  src_addr_mode = (data[1] >> 6) & 3;
-  dst_addr_mode = (data[1] >> 2) & 3;
+	if (l_frame_type <= 2)
+		strncpy(a_packet->desc, s_frame_types[l_frame_type], 256);
+	else	strncpy(a_packet->desc, s_unknown, 256);
 
-  data += 2;
-  packet->seq = data++[0];
+	l_src_addr_mode = (a_data[1] >> 6) & 3;
+	l_dst_addr_mode = (a_data[1] >> 2) & 3;
 
-  /* PAN */
-  if (src_addr_mode == ADDR_MODE_SHORT || src_addr_mode == ADDR_MODE_EXT) {
-    data += ieee802154_fmt_address(packet->pan_addr, ADDR_MODE_SHORT, data);
-  } else {
-    data += ieee802154_fmt_address(packet->pan_addr, ADDR_MODE_NONE, NULL);
-  }
+	a_data += 2;
+	a_packet->seq = a_data++[0];
 
-  /* Destination address */
-  data += ieee802154_fmt_address(packet->dst_addr, dst_addr_mode, data);
-  
-  /* Source address */
-  data += ieee802154_fmt_address(packet->src_addr, src_addr_mode, data);
+	/* PAN */
+	if (l_src_addr_mode == ADDR_MODE_SHORT || l_src_addr_mode == ADDR_MODE_EXT)
+		a_data += ieee802154_fmt_address(a_packet->pan_addr, ADDR_MODE_SHORT, a_data);
+	else	a_data += ieee802154_fmt_address(a_packet->pan_addr, ADDR_MODE_NONE, NULL);
 
-  /* Command */
-  if (frame_type == 3 && (data[0] <= 9)) {
-    strncpy(packet->desc, _cmd_types[data[0]], 256);
-  }
+
+	/* Destination address */
+	a_data += ieee802154_fmt_address(a_packet->dst_addr, l_dst_addr_mode, a_data);
+
+	/* Source address */
+	a_data += ieee802154_fmt_address(a_packet->src_addr, l_src_addr_mode, a_data);
+
+	/* Command */
+	if ( (l_frame_type == 3) && (a_data[0] <= 9))
+		strncpy(a_packet->desc, s_cmd_types[a_data[0]], 256);
 }
 

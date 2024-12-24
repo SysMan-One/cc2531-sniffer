@@ -1,107 +1,98 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <getopt.h>
-#include <stdint.h>
-#include <string.h>
+/*
+ *  FACILITY: A yet another sniffer for ZigBee network
+ *
+ *  DESCRIPTION: A little programm to sniffing ZigBee trafic by using cc2531 adapter
+ *
+ *  AUTHOR: Owen Fraser-Green <owen@fraser-green.com>
+ *
+ *  CREATION DATE: ??-???-????
+ *
+ *  MODIFICATION HISTORY:
+ *
+ *	24-DEC-2024	RRL	A some refactoring to be more readable,
+ *				remove "zep" part of functionality.
+ *
+ */
 
-#include "log.h"
-#include "cc2531.h"
-#include "zep.h"
-#include "ieee802154.h"
 
-int 
-sniff(struct log *log, unsigned char channel, char *remote_address)
+
+#include	<stdio.h>
+#include	<stdlib.h>
+#include	<stdint.h>
+#include	<string.h>
+
+#include	"utility_routines.h"
+#include	"cc2531.h"
+#include	"ieee802154.h"
+
+
+
+int	g_trace = 1;
+
+
+static int  s_do_sniff(unsigned char channel)
 {
-  struct cc2531 *cc2531;
-  struct zep *zep;
+struct cc2531_t *l_cc2531;
+struct cc2531_frame_t l_frame;
+struct ieee802154_packet_t l_packet;
+int	l_rc;
 
-  struct cc2531_frame frame;
-  struct ieee802154_packet packet;
-  char msg[256];
-  int r;
-  
-  log_msg(log, LOG_LEVEL_DEBUG, "cc2531-sniffer initializing.");
+	$LOG(STS$K_INFO, "cc2531-sniffer initializing.");
 
-  cc2531 = cc2531_create(log);
-  if (cc2531 == NULL) return -1;
-  if (cc2531_set_channel(cc2531, channel) < 0) return -1;
-  if (cc2531_start_capture(cc2531) < 0) return -1;
+	if ( !(1 & cc2531_create(&l_cc2531)) )
+		return	cc2531_free(l_cc2531), $LOG(STS$K_ERROR, "cc2531_create() failed.");
 
-  zep = zep_create(log, remote_address);
 
-  while (1) {
-    r = cc2531_get_next_packet(cc2531, &frame);
-    if (r < 0) return -1;
+	if ( !(1 & cc2531_set_channel(l_cc2531, channel)) )
+		return	cc2531_free(l_cc2531), $LOG(STS$K_ERROR, "cc2531_set_channel() failed.");
 
-    ieee802154_decode(channel, frame.length, frame.data, frame.rssi, frame.device_id, &packet);
+	if ( !(1 & cc2531_start_capture(l_cc2531)) )
+		return	cc2531_free(l_cc2531), $LOG(STS$K_ERROR, "cc2531_start_capture() failed.");
 
-    sprintf(msg, "%24s  %24s  %6s  %3d  %s", packet.src_addr, packet.dst_addr, 
-	    packet.pan_addr, packet.seq, packet.desc);
-    log_msg(log, LOG_LEVEL_INFO, msg);
 
-    r = zep_send_packet(zep, &packet);
-    if (r < 0) {
-      /* If sending fails, then re-open and move on */
-      zep_free(zep);
-      zep = zep_create(log, remote_address);
-    }
-  }
-  
-  /* Clean up */
-  zep_free(zep);
-  cc2531_free(cc2531);
-  log_free(log);
- 
-  return 0;
+	for  (l_rc = STS$K_ERROR; ; )
+		{
+		if ( !(1 & (l_rc = cc2531_get_next_packet(l_cc2531, &l_frame))) )
+			{
+			l_rc = $LOG(STS$K_ERROR, "cc2531_get_next_packet() failed.");
+			break;
+			}
+
+		ieee802154_decode(channel, l_frame.length, l_frame.data, l_frame.rssi, l_frame.device_id, &l_packet);
+
+		$IFTRACE(g_trace, "src: <%s>, dst: <%s>, pan: <%6s>, seq: %3d --- %s", l_packet.src_addr, l_packet.dst_addr,
+			l_packet.pan_addr, l_packet.seq, l_packet.desc);
+
+		$DUMPHEX(l_packet.data, l_packet.length);
+		}
+
+	/* Clean up */
+	cc2531_free(l_cc2531);
+
+	return l_rc;
 }
 
-void 
-print_usage()
+void print_usage()
 {
-  printf("Usage: cc22531-sniffer -c CHANNEL -r REMOTE\n");
+	$LOG(STS$K_INFO, "Usage: cc22531-sniffer <CHANNEL>");
 }
 
 
-int main(int argc, char* argv[])
+int	main(int argc, char* argv[])
 {
-  int c;
-  unsigned char channel = 0;
-  char remote_address[16];
+unsigned char l_channel = 0;
 
-  struct log *log = log_stdio_create(LOG_LEVEL_INFO);
-  memset(remote_address, 0, 16);
-  
-  while (1) {
-    int cur_optind = optind ? optind : 1;
-    int option_index = 0;
-    static struct option long_options[] = {
-      {"channel", required_argument, 0, 'c' },
-      {"remote",  required_argument, 0, 'r' },
-      {0,         0,                 0,  0 }
-    };
+	l_channel = atoi(argv[1]);
 
-    c = getopt_long(argc, argv, "c:r:", long_options, &option_index);
-    if (c == -1) break;
+	if ( (l_channel < 11) || (l_channel > 26) )
+		return $LOG(STS$K_ERROR, "Channel out of range. Must be from 11 to 26.");
 
-    switch (c) {
-    case 'c':
-      channel = atoi(optarg);
-      if (channel < 11 || channel > 26)
-	return log_err(log, "Channel out of range. Must be from 11 to 26.");
-      break;
-    case 'r':
-      strncpy(remote_address, optarg, 15);
-      break;
-    default:
-      print_usage();
-      return(EXIT_FAILURE);
-    }
-  }
 
-  if (channel == 0 || remote_address == NULL) {
-    print_usage();
-    return(EXIT_FAILURE);
-  }
+	if (l_channel == 0 )
+		{
+		print_usage();
+		return(EXIT_FAILURE);
+		}
 
-  sniff(log, channel, remote_address);
+	s_do_sniff(l_channel );
 }

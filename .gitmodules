@@ -1,0 +1,6 @@
+[submodule "3rdparty/utility_routines"]
+	path = 3rdparty/utility_routines
+	url = https://gitlab.com/SysMan-One/utility_routines
+[submodule "3rdparty/libusb"]
+	path = 3rdparty/libusb
+	url = https://github.com/libusb/libusb
